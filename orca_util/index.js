@@ -23,7 +23,7 @@ const isPass = ({ desc }) => {
 const betterData = data.map(item => {
   const isLightRail = (item.agency === 'SOT' &&
    !!item.desc.match(/(Pass|Purse) (Use|Rebate) (o|O)n (Entry|Exit)/)) // god why is the O sometimes capitalized
-  const isRide = (item.desc.match(/(Pass|Purse) (Use|Rebate)/))
+  const isRide = !!(item.desc.match(/(Pass|Purse) (Use|Rebate)/))
   return {
     ...item,
     date: DateTime.fromFormat(item.date, 'MM/dd/yyyy hh:mm a'),
@@ -36,6 +36,9 @@ const betterData = data.map(item => {
 
 const lightRailTrips = []
 const lightRailStack = []
+// Add each tap on to a stack
+// Remove the tap on when the associated tap off is found
+// Matches tap on to tap off based on payment type (pass/purse) and card SN
 betterData.forEach(item => {
   if (!item.isLightRail) return
   if (item.isTapOn) {
@@ -73,12 +76,42 @@ betterData.forEach(item => {
     }
   }
 })
-console.log(lightRailTrips)
+lightRailStack.forEach(unpairedTrip => {
+  // deal with duplicate trips
+  lightRailTrips.push({
+    tapOnLocation: unpairedTrip.location,
+    tapOffLocation: undefined,
+    tapOnTime: unpairedTrip.date,
+    tapOffTime: undefined,
+    completedTrip: false,
+    cancelledTrip: false,
+    passUsed: unpairedTrip.isPass,
+    charged: unpairedTrip.amount,
+    sn: unpairedTrip.sn
+  })
+})
 
-const agencyCount = data.reduce((prev, { agency }) => {
-  if (!prev[agency]) {
-    prev[agency] = 0
+const busTrips = []
+betterData.forEach(trip => {
+  if (trip.isRide && !trip.isLightRail && trip.desc.match(/Journey/)) {
+    const duplicateTripInd = busTrips.findIndex(t => t.date.toMillis() === trip.date.toMillis() && t.sn === trip.sn)
+    // Merge duplicate bus trips when pass+purse is used
+    if (busTrips[duplicateTripInd]) {
+      if (trip.isPass) {
+        busTrips[duplicateTripInd].passUsed = true
+      } else {
+        busTrips[duplicateTripInd].charged = trip.amount
+      }
+    } else {
+      busTrips.push({
+        location: trip.location,
+        route: trip.route,
+        sn: trip.sn,
+        agency: trip.agency,
+        charged: trip.amount ? trip.amount : 0,
+        passUsed: trip.isPass,
+        date: trip.date
+      })
+    }
   }
-  prev[agency]++
-  return prev
-}, {})
+})
